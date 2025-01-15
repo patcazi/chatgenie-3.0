@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import EmojiPicker from 'emoji-picker-react';
 import ChannelsList from './ChannelsList';
 import OnlineUsers from './OnlineUsers';
+import PrivateChat from './PrivateChat';
 
 const Chat = () => {
   const { user, logout } = useAuth();
@@ -16,6 +17,8 @@ const Chat = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeChannel, setActiveChannel] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [chatContext, setChatContext] = useState('channels'); // 'channels' or 'private'
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const emojiPickerRef = useRef(null);
@@ -186,15 +189,15 @@ const Chat = () => {
 
   const renderMessage = (message) => {
     const isOwnMessage = message.userId === user.uid;
-    const messageClass = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`;
-    const bubbleClass = `max-w-xs rounded-lg px-4 py-2 ${
-      isOwnMessage ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-900'
+    const messageClass = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'} mb-4`;
+    const bubbleClass = `max-w-xs rounded-lg px-4 py-3 ${
+      isOwnMessage ? 'bg-[#d0eaff] text-gray-900' : 'bg-[#f1f1f1] text-gray-900'
     }`;
 
     return (
       <div key={message.id} className={messageClass}>
         <div className={bubbleClass}>
-          <p className="text-sm font-medium">{message.userName}</p>
+          <p className="text-sm font-medium text-gray-700">{message.userName}</p>
           {message.type === 'file' ? (
             <div>
               <p className="text-sm">
@@ -202,7 +205,7 @@ const Chat = () => {
                   href={message.fileURL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`underline ${isOwnMessage ? 'text-white' : 'text-indigo-600'} hover:opacity-80`}
+                  className="underline text-blue-600 hover:text-blue-800"
                 >
                   {message.fileName}
                 </a>
@@ -211,7 +214,7 @@ const Chat = () => {
           ) : (
             <p className="text-sm">{message.text}</p>
           )}
-          <p className="text-xs mt-1 opacity-75">
+          <p className="text-xs mt-1 text-gray-500">
             {message.timestamp?.toDate().toLocaleTimeString()}
           </p>
         </div>
@@ -219,128 +222,177 @@ const Chat = () => {
     );
   };
 
+  const handleChannelSelect = (channelId) => {
+    setActiveChannel(channelId);
+    setSelectedUser(null);
+    setChatContext('channels');
+  };
+
+  const handleUserSelect = (user) => {
+    setSelectedUser(user);
+    setActiveChannel(null);
+    setChatContext('private');
+  };
+
+  const handleBackToChannels = () => {
+    setSelectedUser(null);
+    setChatContext('channels');
+  };
+
   return (
     <div className="flex h-screen bg-gray-900">
       {/* Sidebar */}
-      <div className="w-64 bg-gray-800 flex flex-col">
-        <ChannelsList
-          currentUser={user}
-          activeChannel={activeChannel}
-          setActiveChannel={setActiveChannel}
-        />
-        <OnlineUsers currentUser={user} />
+      <div className="w-64 bg-[#2c3e50] flex flex-col">
+        <div className={`flex-1 ${chatContext === 'private' ? 'hidden md:block' : ''}`}>
+          <ChannelsList
+            currentUser={user}
+            activeChannel={activeChannel}
+            setActiveChannel={handleChannelSelect}
+          />
+        </div>
+        <div className={`flex-1 ${chatContext === 'channels' ? 'hidden md:block' : ''}`}>
+          <OnlineUsers 
+            currentUser={user}
+            onUserSelect={handleUserSelect}
+            selectedUserId={selectedUser?.id}
+          />
+        </div>
       </div>
 
       {/* Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* User Status Bar */}
-        <div className="bg-gray-800 px-4 py-2 flex justify-end items-center">
-          <div className="relative" ref={userMenuRef}>
+        <div className="bg-[#2c3e50] px-6 py-3 flex justify-between items-center border-b border-gray-700">
+          {chatContext === 'private' && (
             <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
-              className="flex items-center space-x-2 text-gray-300 hover:text-white focus:outline-none"
+              onClick={handleBackToChannels}
+              className="flex items-center text-gray-300 hover:text-white focus:outline-none"
             >
-              <span className="h-2 w-2 bg-green-500 rounded-full"></span>
-              <span>{user?.displayName || 'Anonymous'}</span>
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path d="M19 9l-7 7-7-7"></path>
+              <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
+              Back to Channels
             </button>
+          )}
+          <div className="flex-1 flex justify-end">
+            <div className="relative" ref={userMenuRef}>
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="flex items-center space-x-2 text-gray-300 hover:text-white focus:outline-none"
+              >
+                <span className="h-2 w-2 bg-green-500 rounded-full"></span>
+                <span>{user?.displayName || 'Anonymous'}</span>
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
 
-            {showUserMenu && (
-              <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-                <div className="py-1">
-                  <button
-                    onClick={handleLogout}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Sign out
-                  </button>
+              {showUserMenu && (
+                <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                  <div className="py-1">
+                    <button
+                      onClick={handleLogout}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      Sign out
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
-        {activeChannel ? (
-          <>
-            {/* Messages Container */}
-            <div className="flex-1 flex flex-col bg-white overflow-hidden">
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.length === 0 ? (
-                  <p className="text-center text-gray-500">No messages yet</p>
-                ) : (
-                  messages.map(message => renderMessage(message))
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-            </div>
-
-            {/* Input Area */}
-            <div className="p-4 bg-gray-800 border-t border-gray-700">
-              <form onSubmit={handleSendMessage} className="flex space-x-2">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Type your message..."
-                    className="w-full bg-gray-700 text-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
-                  >
-                    😀
-                  </button>
-                  {showEmojiPicker && (
-                    <div
-                      ref={emojiPickerRef}
-                      className="absolute bottom-full right-0 mb-2"
-                    >
-                      <EmojiPicker onEmojiClick={handleEmojiClick} />
-                    </div>
+        {/* Conditional Rendering based on Context */}
+        {chatContext === 'channels' ? (
+          activeChannel ? (
+            <>
+              {/* Channel Messages Container */}
+              <div className="flex-1 flex flex-col bg-white overflow-hidden">
+                <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+                  {messages.length === 0 ? (
+                    <p className="text-center text-gray-500">No messages yet</p>
+                  ) : (
+                    messages.map(message => renderMessage(message))
                   )}
+                  <div ref={messagesEndRef} />
                 </div>
-                <input
-                  type="file"
-                  onChange={handleFileUpload}
-                  ref={fileInputRef}
-                  className="hidden"
-                  id="file-upload"
-                />
-                <label
-                  htmlFor="file-upload"
-                  className="px-4 py-2 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 cursor-pointer flex items-center"
-                >
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                  </svg>
-                </label>
-                <button
-                  type="submit"
-                  disabled={!newMessage.trim()}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                >
-                  Send
-                </button>
-              </form>
+              </div>
+
+              {/* Channel Input Area */}
+              <div className="p-6 bg-[#2c3e50] border-t border-gray-700">
+                <form onSubmit={handleSendMessage} className="flex space-x-3">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      placeholder="Type your message..."
+                      className="w-full bg-gray-700 text-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+                    >
+                      😀
+                    </button>
+                    {showEmojiPicker && (
+                      <div
+                        ref={emojiPickerRef}
+                        className="absolute bottom-full right-0 mb-2"
+                      >
+                        <EmojiPicker onEmojiClick={handleEmojiClick} />
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    onChange={handleFileUpload}
+                    ref={fileInputRef}
+                    className="hidden"
+                    id="file-upload"
+                  />
+                  <label
+                    htmlFor="file-upload"
+                    className="px-4 py-3 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 cursor-pointer flex items-center"
+                  >
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={!newMessage.trim()}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    Send
+                  </button>
+                </form>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center bg-white">
+              <p className="text-gray-500">Select a channel to start chatting</p>
             </div>
-          </>
+          )
         ) : (
-          <div className="flex-1 flex items-center justify-center bg-white">
-            <p className="text-gray-500">Select a channel to start chatting</p>
-          </div>
+          selectedUser && (
+            <PrivateChat
+              currentUser={user}
+              selectedUser={selectedUser}
+              onClose={handleBackToChannels}
+              className="flex-1"
+            />
+          )
         )}
       </div>
     </div>

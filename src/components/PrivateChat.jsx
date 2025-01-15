@@ -4,7 +4,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase';
 import EmojiPicker from 'emoji-picker-react';
 
-const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
+const PrivateChat = ({ currentUser, selectedUser, onClose, className = '' }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -167,15 +167,15 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
 
   const renderMessage = (message) => {
     const isOwnMessage = message.senderId === currentUser.uid;
-    const messageClass = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`;
-    const bubbleClass = `max-w-xs rounded-lg px-4 py-2 ${
-      isOwnMessage ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-900'
+    const messageClass = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'} mb-4`;
+    const bubbleClass = `max-w-xs rounded-lg px-4 py-3 ${
+      isOwnMessage ? 'bg-[#d0eaff] text-gray-900' : 'bg-[#f1f1f1] text-gray-900'
     }`;
 
     return (
       <div key={message.id} className={messageClass}>
         <div className={bubbleClass}>
-          <p className="text-sm font-medium">{message.senderName}</p>
+          <p className="text-sm font-medium text-gray-700">{message.senderName}</p>
           {message.type === 'file' ? (
             <div>
               <p className="text-sm">
@@ -183,7 +183,7 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
                   href={message.fileURL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`underline ${isOwnMessage ? 'text-white' : 'text-indigo-600'} hover:opacity-80`}
+                  className="underline text-blue-600 hover:text-blue-800"
                 >
                   {message.fileName}
                 </a>
@@ -192,7 +192,7 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
           ) : (
             <p className="text-sm">{message.message}</p>
           )}
-          <p className="text-xs mt-1 opacity-75">
+          <p className="text-xs mt-1 text-gray-500">
             {message.timestamp?.toDate().toLocaleTimeString()}
           </p>
         </div>
@@ -201,27 +201,9 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
   };
 
   return (
-    <div className="flex flex-col bg-white w-full h-96 border-t border-gray-200 shadow-lg">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-        <div className="flex items-center">
-          <span className="h-2 w-2 bg-green-500 rounded-full mr-2"></span>
-          <h3 className="text-gray-800 font-medium">
-            Chat with {selectedUser.displayName || 'Anonymous'}
-          </h3>
-        </div>
-        <button
-          onClick={onClose}
-          className="text-gray-500 hover:text-gray-700"
-        >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-
+    <div className={`flex flex-col bg-white overflow-hidden ${className}`}>
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
         {messages.length === 0 ? (
           <p className="text-center text-gray-500">No messages yet</p>
         ) : (
@@ -231,20 +213,20 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
       </div>
 
       {/* Message Input */}
-      <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200">
-        <div className="flex space-x-2">
+      <form onSubmit={handleSendMessage} className="p-6 bg-[#2c3e50] border-t border-gray-700">
+        <div className="flex space-x-3">
           <div className="flex-1 relative">
             <input
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder="Type your message..."
-              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full bg-gray-700 text-gray-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
               type="button"
               onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
             >
               😀
             </button>
@@ -266,7 +248,7 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
           />
           <label
             htmlFor="private-file-upload"
-            className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 cursor-pointer flex items-center"
+            className="px-4 py-3 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 cursor-pointer flex items-center"
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -275,7 +257,7 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
           <button
             type="submit"
             disabled={!newMessage.trim()}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
             Send
           </button>
