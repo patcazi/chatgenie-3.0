@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import ChannelsList from './ChannelsList';
+import OnlineUsers from './OnlineUsers';
+import EmojiPicker from 'emoji-picker-react';
 
 const Chat = () => {
   const { user, logout } = useAuth();
@@ -11,8 +13,44 @@ const Chat = () => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [activeChannel, setActiveChannel] = useState(null);
+  const [activeChannelName, setActiveChannelName] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiPickerRef = useRef(null);
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target)) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Fetch channel name when active channel changes
+  useEffect(() => {
+    const fetchChannelName = async () => {
+      if (!activeChannel) {
+        setActiveChannelName('');
+        return;
+      }
+
+      try {
+        const channelDoc = await getDoc(doc(db, 'channels', activeChannel));
+        if (channelDoc.exists()) {
+          setActiveChannelName(channelDoc.data().channelName);
+        }
+      } catch (error) {
+        console.error('Error fetching channel name:', error);
+      }
+    };
+
+    fetchChannelName();
+  }, [activeChannel]);
 
   // Listen for messages in the active channel
   useEffect(() => {
@@ -53,6 +91,11 @@ const Chat = () => {
     }
   };
 
+  const handleEmojiClick = (emojiData) => {
+    setNewMessage(prev => prev + emojiData.emoji);
+    setShowEmojiPicker(false);
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -75,6 +118,7 @@ const Chat = () => {
           <div className="flex-1 flex flex-col overflow-y-auto">
             <nav className="flex-1 px-2 py-4">
               <ChannelsList setActiveChannel={setActiveChannel} />
+              <OnlineUsers currentUser={user} />
             </nav>
           </div>
         </div>
@@ -109,6 +153,7 @@ const Chat = () => {
               </div>
               <nav className="flex-1 px-2 py-4">
                 <ChannelsList setActiveChannel={setActiveChannel} />
+                <OnlineUsers currentUser={user} />
               </nav>
             </div>
           </div>
@@ -121,7 +166,7 @@ const Chat = () => {
         <div className="flex-shrink-0 bg-white border-b border-gray-200">
           <div className="h-16 flex items-center justify-between px-6">
             <h2 className="text-lg font-medium text-gray-900">
-              {activeChannel ? `#${activeChannel}` : 'Select a channel'}
+              {activeChannelName ? `#${activeChannelName}` : 'Select a channel'}
             </h2>
             
             {/* User profile and menu */}
@@ -202,13 +247,30 @@ const Chat = () => {
         {activeChannel && (
           <div className="flex-shrink-0 bg-white border-t border-gray-200 p-4">
             <form onSubmit={handleSendMessage} className="flex space-x-4">
-              <input
-                type="text"
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="Type your message..."
-                className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-indigo-500"
-              />
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  placeholder="Type your message..."
+                  className="w-full rounded-lg border border-gray-300 pl-4 pr-12 py-2 focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  😀
+                </button>
+                {showEmojiPicker && (
+                  <div
+                    ref={emojiPickerRef}
+                    className="absolute bottom-full right-0 mb-2"
+                  >
+                    <EmojiPicker onEmojiClick={handleEmojiClick} />
+                  </div>
+                )}
+              </div>
               <button
                 type="submit"
                 disabled={!newMessage.trim()}
