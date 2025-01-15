@@ -1,13 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase';
+import EmojiPicker from 'emoji-picker-react';
 
 const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const emojiPickerRef = useRef(null);
 
-  // Scroll to bottom of messages
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -16,6 +20,23 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
     scrollToBottom();
   }, [messages]);
 
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target)) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Create a consistent conversation ID between two users
+  const getConversationId = (uid1, uid2) => {
+    return [uid1, uid2].sort().join('_');
+  };
+
   // Listen for private messages between current user and selected user
   useEffect(() => {
     if (!currentUser?.uid || !selectedUser?.id) {
@@ -23,7 +44,7 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
       return;
     }
 
-    console.log('Setting up message listener between:', {
+    console.log('Setting up private message listener between:', {
       currentUserId: currentUser.uid,
       selectedUserId: selectedUser.id
     });
@@ -68,7 +89,12 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
     } catch (error) {
       console.error('Error setting up message listener:', error);
     }
-  }, [currentUser?.uid, selectedUser?.id]); // Updated dependencies to be more specific
+  }, [currentUser?.uid, selectedUser?.id]);
+
+  const handleEmojiClick = (emojiData) => {
+    setNewMessage(prev => prev + emojiData.emoji);
+    setShowEmojiPicker(false);
+  };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -76,10 +102,11 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
 
     try {
       const messageData = {
-        senderId: currentUser.uid,
-        receiverId: selectedUser.id,
+        type: 'text',
         message: newMessage.trim(),
         timestamp: serverTimestamp(),
+        senderId: currentUser.uid,
+        receiverId: selectedUser.id,
         senderName: currentUser.displayName || 'Anonymous',
         receiverName: selectedUser.displayName || 'Anonymous'
       };
@@ -95,7 +122,83 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
     }
   };
 
-  console.log('Current messages state:', messages); // Debug current messages state
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      console.log('Uploading file:', file.name);
+
+      // Create a unique conversation ID for storage path
+      const conversationId = getConversationId(currentUser.uid, selectedUser.id);
+      
+      // Upload file to Storage
+      const storageRef = ref(storage, `privateMessages/${conversationId}/${file.name}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+
+      console.log('File uploaded to Storage, URL:', downloadURL);
+
+      // Create a message for the file
+      const messageData = {
+        type: 'file',
+        fileName: file.name,
+        fileURL: downloadURL,
+        timestamp: serverTimestamp(),
+        senderId: currentUser.uid,
+        receiverId: selectedUser.id,
+        senderName: currentUser.displayName || 'Anonymous',
+        receiverName: selectedUser.displayName || 'Anonymous'
+      };
+
+      console.log('Creating file message:', messageData);
+
+      const docRef = await addDoc(collection(db, 'privateMessages'), messageData);
+      console.log('File message saved successfully with ID:', docRef.id);
+
+      // Clear the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error) {
+      console.error('File upload failed:', error);
+    }
+  };
+
+  const renderMessage = (message) => {
+    const isOwnMessage = message.senderId === currentUser.uid;
+    const messageClass = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`;
+    const bubbleClass = `max-w-xs rounded-lg px-4 py-2 ${
+      isOwnMessage ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-900'
+    }`;
+
+    return (
+      <div key={message.id} className={messageClass}>
+        <div className={bubbleClass}>
+          <p className="text-sm font-medium">{message.senderName}</p>
+          {message.type === 'file' ? (
+            <div>
+              <p className="text-sm">
+                shared a file: <a 
+                  href={message.fileURL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`underline ${isOwnMessage ? 'text-white' : 'text-indigo-600'} hover:opacity-80`}
+                >
+                  {message.fileName}
+                </a>
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm">{message.message}</p>
+          )}
+          <p className="text-xs mt-1 opacity-75">
+            {message.timestamp?.toDate().toLocaleTimeString()}
+          </p>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col bg-white w-full h-96 border-t border-gray-200 shadow-lg">
@@ -122,25 +225,7 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
         {messages.length === 0 ? (
           <p className="text-center text-gray-500">No messages yet</p>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-xs rounded-lg px-4 py-2 ${
-                  message.senderId === currentUser.uid
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-200 text-gray-900'
-                }`}
-              >
-                <p className="text-sm">{message.message}</p>
-                <p className="text-xs mt-1 opacity-75">
-                  {message.timestamp?.toDate().toLocaleTimeString()}
-                </p>
-              </div>
-            </div>
-          ))
+          messages.map(message => renderMessage(message))
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -148,13 +233,45 @@ const PrivateChat = ({ currentUser, selectedUser, onClose }) => {
       {/* Message Input */}
       <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-gray-200">
         <div className="flex space-x-2">
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Type your message..."
+              className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <button
+              type="button"
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              😀
+            </button>
+            {showEmojiPicker && (
+              <div
+                ref={emojiPickerRef}
+                className="absolute bottom-full right-0 mb-2"
+              >
+                <EmojiPicker onEmojiClick={handleEmojiClick} />
+              </div>
+            )}
+          </div>
           <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type your message..."
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            type="file"
+            onChange={handleFileUpload}
+            ref={fileInputRef}
+            className="hidden"
+            id="private-file-upload"
           />
+          <label
+            htmlFor="private-file-upload"
+            className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 cursor-pointer flex items-center"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </label>
           <button
             type="submit"
             disabled={!newMessage.trim()}

@@ -1,18 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where, doc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import EmojiPicker from 'emoji-picker-react';
 import ChannelsList from './ChannelsList';
 import OnlineUsers from './OnlineUsers';
 
 const Chat = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [activeChannel, setActiveChannel] = useState(null);
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const emojiPickerRef = useRef(null);
+  const userMenuRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -21,6 +28,30 @@ const Chat = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target)) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Close user menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Listen for messages in the active channel
   useEffect(() => {
@@ -64,6 +95,11 @@ const Chat = () => {
     };
   }, [activeChannel]);
 
+  const handleEmojiClick = (emojiData) => {
+    setNewMessage(prev => prev + emojiData.emoji);
+    setShowEmojiPicker(false);
+  };
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !activeChannel) return;
@@ -73,7 +109,7 @@ const Chat = () => {
       
       const messageData = {
         type: 'text',
-        text: newMessage,
+        text: newMessage.trim(),
         timestamp: serverTimestamp(),
         userId: user.uid,
         userName: user.displayName || 'Anonymous'
@@ -131,6 +167,23 @@ const Chat = () => {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      // Update user's online status in Firestore
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        isOnline: false,
+        lastActive: serverTimestamp()
+      });
+
+      // Sign out the user
+      await logout();
+      navigate('/');
+    } catch (error) {
+      console.error('Error logging out:', error);
+    }
+  };
+
   const renderMessage = (message) => {
     const isOwnMessage = message.userId === user.uid;
     const messageClass = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`;
@@ -180,6 +233,43 @@ const Chat = () => {
 
       {/* Chat Area */}
       <div className="flex-1 flex flex-col">
+        {/* User Status Bar */}
+        <div className="bg-gray-800 px-4 py-2 flex justify-end items-center">
+          <div className="relative" ref={userMenuRef}>
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="flex items-center space-x-2 text-gray-300 hover:text-white focus:outline-none"
+            >
+              <span className="h-2 w-2 bg-green-500 rounded-full"></span>
+              <span>{user?.displayName || 'Anonymous'}</span>
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path d="M19 9l-7 7-7-7"></path>
+              </svg>
+            </button>
+
+            {showUserMenu && (
+              <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                <div className="py-1">
+                  <button
+                    onClick={handleLogout}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {activeChannel ? (
           <>
             {/* Messages Container */}
@@ -198,13 +288,30 @@ const Chat = () => {
             {/* Input Area */}
             <div className="p-4 bg-gray-800 border-t border-gray-700">
               <form onSubmit={handleSendMessage} className="flex space-x-2">
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Type your message..."
-                  className="flex-1 bg-gray-700 text-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Type your message..."
+                    className="w-full bg-gray-700 text-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300"
+                  >
+                    😀
+                  </button>
+                  {showEmojiPicker && (
+                    <div
+                      ref={emojiPickerRef}
+                      className="absolute bottom-full right-0 mb-2"
+                    >
+                      <EmojiPicker onEmojiClick={handleEmojiClick} />
+                    </div>
+                  )}
+                </div>
                 <input
                   type="file"
                   onChange={handleFileUpload}
