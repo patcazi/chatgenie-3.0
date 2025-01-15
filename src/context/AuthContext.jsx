@@ -3,7 +3,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  updateProfile
 } from 'firebase/auth';
 import { auth } from '../firebase';
 
@@ -17,9 +18,18 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Register function
-  const register = (email, password) => {
-    return createUserWithEmailAndPassword(auth, email, password);
+  // Register function with name
+  const register = async (email, password, name) => {
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      // Update the user's profile with their name
+      await updateProfile(userCredential.user, {
+        displayName: name
+      });
+      return userCredential.user;
+    } catch (error) {
+      throw error;
+    }
   };
 
   // Login function

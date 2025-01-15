@@ -1,39 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-
-// Temporary data structure for channels
-const TEMP_CHANNELS = [
-  { id: 1, name: 'General' },
-  { id: 2, name: 'Random' },
-  { id: 3, name: 'Support' },
-];
-
-// Temporary data structure for messages
-const TEMP_MESSAGES = [
-  { id: 1, text: 'Hello everyone!', sender: 'user1@example.com', timestamp: new Date().toISOString() },
-  { id: 2, text: 'Welcome to ChatGenie!', sender: 'user2@example.com', timestamp: new Date().toISOString() },
-];
+import { useNavigate } from 'react-router-dom';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../firebase';
+import ChannelsList from './ChannelsList';
 
 const Chat = () => {
-  const { user } = useAuth();
-  const [messages, setMessages] = useState(TEMP_MESSAGES);
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
+  const [activeChannel, setActiveChannel] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [selectedChannel, setSelectedChannel] = useState(TEMP_CHANNELS[0]);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
-  const handleSendMessage = (e) => {
+  // Listen for messages in the active channel
+  useEffect(() => {
+    if (!activeChannel) return;
+
+    const q = query(
+      collection(db, `channels/${activeChannel}/messages`),
+      orderBy('timestamp')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const messagesData = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setMessages(messagesData);
+    });
+
+    return () => unsubscribe();
+  }, [activeChannel]);
+
+  const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || !activeChannel) return;
 
-    const message = {
-      id: messages.length + 1,
-      text: newMessage,
-      sender: user.email,
-      timestamp: new Date().toISOString(),
-    };
+    try {
+      const messagesRef = collection(db, `channels/${activeChannel}/messages`);
+      await addDoc(messagesRef, {
+        text: newMessage,
+        sender: user.email,
+        senderName: user.displayName || 'Anonymous',
+        timestamp: serverTimestamp(),
+      });
 
-    setMessages([...messages, message]);
-    setNewMessage('');
+      setNewMessage('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/');
+    } catch (error) {
+      console.error('Failed to log out:', error);
+    }
   };
 
   return (
@@ -47,27 +73,9 @@ const Chat = () => {
           </div>
           {/* Channels list */}
           <div className="flex-1 flex flex-col overflow-y-auto">
-            <nav className="flex-1 px-2 py-4 space-y-1">
-              {TEMP_CHANNELS.map((channel) => (
-                <button
-                  key={channel.id}
-                  onClick={() => setSelectedChannel(channel)}
-                  className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${
-                    selectedChannel.id === channel.id
-                      ? 'bg-gray-900 text-white'
-                      : 'text-gray-300 hover:bg-gray-700'
-                  }`}
-                >
-                  # {channel.name}
-                </button>
-              ))}
+            <nav className="flex-1 px-2 py-4">
+              <ChannelsList setActiveChannel={setActiveChannel} />
             </nav>
-          </div>
-          {/* New channel button */}
-          <div className="flex-shrink-0 flex bg-gray-700 p-4">
-            <button className="w-full px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md">
-              New Channel
-            </button>
           </div>
         </div>
       </div>
@@ -99,23 +107,8 @@ const Chat = () => {
               <div className="flex items-center h-16 flex-shrink-0 px-4 bg-gray-900">
                 <h1 className="text-white font-bold">ChatGenie</h1>
               </div>
-              <nav className="flex-1 px-2 py-4 space-y-1">
-                {TEMP_CHANNELS.map((channel) => (
-                  <button
-                    key={channel.id}
-                    onClick={() => {
-                      setSelectedChannel(channel);
-                      setIsSidebarOpen(false);
-                    }}
-                    className={`w-full text-left px-4 py-2 rounded-md text-sm font-medium ${
-                      selectedChannel.id === channel.id
-                        ? 'bg-gray-900 text-white'
-                        : 'text-gray-300 hover:bg-gray-700'
-                    }`}
-                  >
-                    # {channel.name}
-                  </button>
-                ))}
+              <nav className="flex-1 px-2 py-4">
+                <ChannelsList setActiveChannel={setActiveChannel} />
               </nav>
             </div>
           </div>
@@ -126,14 +119,58 @@ const Chat = () => {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Chat header */}
         <div className="flex-shrink-0 bg-white border-b border-gray-200">
-          <div className="h-16 flex items-center px-6">
-            <h2 className="text-lg font-medium text-gray-900">#{selectedChannel.name}</h2>
+          <div className="h-16 flex items-center justify-between px-6">
+            <h2 className="text-lg font-medium text-gray-900">
+              {activeChannel ? `#${activeChannel}` : 'Select a channel'}
+            </h2>
+            
+            {/* User profile and menu */}
+            <div className="relative">
+              <button
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                className="flex items-center space-x-3 focus:outline-none"
+              >
+                <div className="flex items-center space-x-2">
+                  <span className="h-2.5 w-2.5 bg-green-500 rounded-full"></span>
+                  <span className="text-sm font-medium text-gray-700">
+                    {user?.displayName || 'User'}
+                  </span>
+                </div>
+                <svg
+                  className="h-5 w-5 text-gray-400"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
+
+              {/* Dropdown menu */}
+              {isUserMenuOpen && (
+                <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                  <div className="py-1">
+                    <button
+                      onClick={handleLogout}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {messages.length === 0 ? (
+          {!activeChannel ? (
+            <p className="text-center text-gray-500">Select a channel to start chatting</p>
+          ) : messages.length === 0 ? (
             <p className="text-center text-gray-500">No messages yet. Start the conversation!</p>
           ) : (
             messages.map((message) => (
@@ -148,9 +185,12 @@ const Chat = () => {
                       : 'bg-gray-200 text-gray-900'
                   }`}
                 >
+                  <div className="text-xs opacity-75 mb-1">
+                    {message.senderName || 'Anonymous'}
+                  </div>
                   <p className="text-sm">{message.text}</p>
                   <p className="text-xs mt-1 opacity-75">
-                    {new Date(message.timestamp).toLocaleTimeString()}
+                    {message.timestamp?.toDate().toLocaleTimeString()}
                   </p>
                 </div>
               </div>
@@ -159,24 +199,26 @@ const Chat = () => {
         </div>
 
         {/* Message input */}
-        <div className="flex-shrink-0 bg-white border-t border-gray-200 p-4">
-          <form onSubmit={handleSendMessage} className="flex space-x-4">
-            <input
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="Type your message..."
-              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-indigo-500"
-            />
-            <button
-              type="submit"
-              disabled={!newMessage.trim()}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-            >
-              Send
-            </button>
-          </form>
-        </div>
+        {activeChannel && (
+          <div className="flex-shrink-0 bg-white border-t border-gray-200 p-4">
+            <form onSubmit={handleSendMessage} className="flex space-x-4">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type your message..."
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                type="submit"
+                disabled={!newMessage.trim()}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Send
+              </button>
+            </form>
+          </div>
+        )}
       </div>
     </div>
   );
