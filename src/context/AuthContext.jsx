@@ -8,7 +8,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, onDisconnect } from 'firebase/database';
-import { auth, db, rtdb } from '../firebase';
+import { auth, db, database } from '../firebase';
 
 const AuthContext = createContext();
 
@@ -25,7 +25,7 @@ const logUserOnline = async (user) => {
   }, { merge: true });
 
   // Set up disconnect handler in Realtime Database
-  const userStatusRef = ref(rtdb, `status/${user.uid}`);
+  const userStatusRef = ref(database, `status/${user.uid}`);
   onDisconnect(userStatusRef).remove().then(() => {
     // When disconnect triggers, update Firestore
     const userDocRef = doc(db, 'users', user.uid);

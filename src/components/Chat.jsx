@@ -1,75 +1,67 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, where } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
 import ChannelsList from './ChannelsList';
 import OnlineUsers from './OnlineUsers';
-import EmojiPicker from 'emoji-picker-react';
 
 const Chat = () => {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [activeChannel, setActiveChannel] = useState(null);
-  const [activeChannelName, setActiveChannelName] = useState('');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const emojiPickerRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
-  // Close emoji picker when clicking outside
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target)) {
-        setShowEmojiPicker(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Fetch channel name when active channel changes
-  useEffect(() => {
-    const fetchChannelName = async () => {
-      if (!activeChannel) {
-        setActiveChannelName('');
-        return;
-      }
-
-      try {
-        const channelDoc = await getDoc(doc(db, 'channels', activeChannel));
-        if (channelDoc.exists()) {
-          setActiveChannelName(channelDoc.data().channelName);
-        }
-      } catch (error) {
-        console.error('Error fetching channel name:', error);
-      }
-    };
-
-    fetchChannelName();
-  }, [activeChannel]);
+    scrollToBottom();
+  }, [messages]);
 
   // Listen for messages in the active channel
   useEffect(() => {
-    if (!activeChannel) return;
+    if (!activeChannel) {
+      console.log('No active channel selected');
+      return;
+    }
 
+    console.log('Setting up message listener for channel:', activeChannel);
+
+    // Use the nested collection path for messages
+    const messagesRef = collection(db, `channels/${activeChannel}/messages`);
     const q = query(
-      collection(db, `channels/${activeChannel}/messages`),
-      orderBy('timestamp')
+      messagesRef,
+      orderBy('timestamp', 'asc')
     );
 
+    console.log('Query created:', q);
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const messagesData = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setMessages(messagesData);
+      console.log('Snapshot received, document count:', snapshot.size);
+      
+      const messagesList = snapshot.docs.map(doc => {
+        const data = {
+          id: doc.id,
+          ...doc.data()
+        };
+        console.log('Message data:', data);
+        return data;
+      });
+
+      console.log('Final messages list:', messagesList);
+      setMessages(messagesList);
+    }, (error) => {
+      console.error('Error in message listener:', error);
     });
 
-    return () => unsubscribe();
+    return () => {
+      console.log('Cleaning up message listener');
+      unsubscribe();
+    };
   }, [activeChannel]);
 
   const handleSendMessage = async (e) => {
@@ -77,208 +69,170 @@ const Chat = () => {
     if (!newMessage.trim() || !activeChannel) return;
 
     try {
-      const messagesRef = collection(db, `channels/${activeChannel}/messages`);
-      await addDoc(messagesRef, {
+      console.log('Sending text message to channel:', activeChannel);
+      
+      const messageData = {
+        type: 'text',
         text: newMessage,
-        sender: user.email,
-        senderName: user.displayName || 'Anonymous',
         timestamp: serverTimestamp(),
-      });
+        userId: user.uid,
+        userName: user.displayName || 'Anonymous'
+      };
 
+      console.log('Message data:', messageData);
+
+      const messagesRef = collection(db, `channels/${activeChannel}/messages`);
+      const docRef = await addDoc(messagesRef, messageData);
+      
+      console.log('Message saved successfully with ID:', docRef.id);
       setNewMessage('');
     } catch (error) {
       console.error('Error sending message:', error);
     }
   };
 
-  const handleEmojiClick = (emojiData) => {
-    setNewMessage(prev => prev + emojiData.emoji);
-    setShowEmojiPicker(false);
-  };
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !activeChannel) return;
 
-  const handleLogout = async () => {
     try {
-      await logout();
-      navigate('/');
+      console.log('Uploading file:', file.name, 'to channel:', activeChannel);
+
+      // Upload file to Storage
+      const storageRef = ref(storage, `channels/${activeChannel}/${file.name}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+
+      console.log('File uploaded to Storage, URL:', downloadURL);
+
+      // Create a message for the file
+      const messageData = {
+        type: 'file',
+        fileName: file.name,
+        fileURL: downloadURL,
+        timestamp: serverTimestamp(),
+        userId: user.uid,
+        userName: user.displayName || 'Anonymous'
+      };
+
+      console.log('Creating file message:', messageData);
+
+      const messagesRef = collection(db, `channels/${activeChannel}/messages`);
+      const docRef = await addDoc(messagesRef, messageData);
+
+      console.log('File message saved successfully with ID:', docRef.id);
+
+      // Clear the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     } catch (error) {
-      console.error('Failed to log out:', error);
+      console.error('File upload failed:', error);
     }
   };
 
-  return (
-    <div className="h-screen flex overflow-hidden bg-gray-100">
-      {/* Sidebar for larger screens */}
-      <div className="hidden md:flex md:flex-shrink-0">
-        <div className="flex flex-col w-64 bg-gray-800">
-          {/* Sidebar header */}
-          <div className="flex items-center h-16 flex-shrink-0 px-4 bg-gray-900">
-            <h1 className="text-white font-bold">ChatGenie</h1>
-          </div>
-          {/* Channels list */}
-          <div className="flex-1 flex flex-col overflow-y-auto">
-            <nav className="flex-1 px-2 py-4">
-              <ChannelsList setActiveChannel={setActiveChannel} />
-              <OnlineUsers currentUser={user} />
-            </nav>
-          </div>
-        </div>
-      </div>
+  const renderMessage = (message) => {
+    const isOwnMessage = message.userId === user.uid;
+    const messageClass = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`;
+    const bubbleClass = `max-w-xs rounded-lg px-4 py-2 ${
+      isOwnMessage ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-900'
+    }`;
 
-      {/* Mobile sidebar */}
-      <div className="md:hidden">
-        <button
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="fixed top-4 left-4 z-50 p-2 rounded-md bg-gray-800 text-white"
-        >
-          <svg
-            className="h-6 w-6"
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path d="M4 6h16M4 12h16M4 18h16"></path>
-          </svg>
-        </button>
-
-        {/* Mobile sidebar drawer */}
-        {isSidebarOpen && (
-          <div className="fixed inset-0 z-40">
-            <div className="fixed inset-0 bg-gray-600 opacity-75" onClick={() => setIsSidebarOpen(false)}></div>
-            <div className="fixed inset-y-0 left-0 flex flex-col w-64 bg-gray-800">
-              <div className="flex items-center h-16 flex-shrink-0 px-4 bg-gray-900">
-                <h1 className="text-white font-bold">ChatGenie</h1>
-              </div>
-              <nav className="flex-1 px-2 py-4">
-                <ChannelsList setActiveChannel={setActiveChannel} />
-                <OnlineUsers currentUser={user} />
-              </nav>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Main chat area */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Chat header */}
-        <div className="flex-shrink-0 bg-white border-b border-gray-200">
-          <div className="h-16 flex items-center justify-between px-6">
-            <h2 className="text-lg font-medium text-gray-900">
-              {activeChannelName ? `#${activeChannelName}` : 'Select a channel'}
-            </h2>
-            
-            {/* User profile and menu */}
-            <div className="relative">
-              <button
-                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="flex items-center space-x-3 focus:outline-none"
-              >
-                <div className="flex items-center space-x-2">
-                  <span className="h-2.5 w-2.5 bg-green-500 rounded-full"></span>
-                  <span className="text-sm font-medium text-gray-700">
-                    {user?.displayName || 'User'}
-                  </span>
-                </div>
-                <svg
-                  className="h-5 w-5 text-gray-400"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
+    return (
+      <div key={message.id} className={messageClass}>
+        <div className={bubbleClass}>
+          <p className="text-sm font-medium">{message.userName}</p>
+          {message.type === 'file' ? (
+            <div>
+              <p className="text-sm">
+                uploaded: <a 
+                  href={message.fileURL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`underline ${isOwnMessage ? 'text-white' : 'text-indigo-600'} hover:opacity-80`}
                 >
-                  <path d="M19 9l-7 7-7-7"></path>
-                </svg>
-              </button>
-
-              {/* Dropdown menu */}
-              {isUserMenuOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
-                  <div className="py-1">
-                    <button
-                      onClick={handleLogout}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                    >
-                      Sign out
-                    </button>
-                  </div>
-                </div>
-              )}
+                  {message.fileName}
+                </a>
+              </p>
             </div>
-          </div>
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {!activeChannel ? (
-            <p className="text-center text-gray-500">Select a channel to start chatting</p>
-          ) : messages.length === 0 ? (
-            <p className="text-center text-gray-500">No messages yet. Start the conversation!</p>
           ) : (
-            messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.sender === user?.email ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-xs md:max-w-md rounded-lg px-4 py-2 ${
-                    message.sender === user?.email
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-200 text-gray-900'
-                  }`}
-                >
-                  <div className="text-xs opacity-75 mb-1">
-                    {message.senderName || 'Anonymous'}
-                  </div>
-                  <p className="text-sm">{message.text}</p>
-                  <p className="text-xs mt-1 opacity-75">
-                    {message.timestamp?.toDate().toLocaleTimeString()}
-                  </p>
-                </div>
-              </div>
-            ))
+            <p className="text-sm">{message.text}</p>
           )}
+          <p className="text-xs mt-1 opacity-75">
+            {message.timestamp?.toDate().toLocaleTimeString()}
+          </p>
         </div>
+      </div>
+    );
+  };
 
-        {/* Message input */}
-        {activeChannel && (
-          <div className="flex-shrink-0 bg-white border-t border-gray-200 p-4">
-            <form onSubmit={handleSendMessage} className="flex space-x-4">
-              <div className="flex-1 relative">
+  return (
+    <div className="flex h-screen bg-gray-900">
+      {/* Sidebar */}
+      <div className="w-64 bg-gray-800 flex flex-col">
+        <ChannelsList
+          currentUser={user}
+          activeChannel={activeChannel}
+          setActiveChannel={setActiveChannel}
+        />
+        <OnlineUsers currentUser={user} />
+      </div>
+
+      {/* Chat Area */}
+      <div className="flex-1 flex flex-col">
+        {activeChannel ? (
+          <>
+            {/* Messages Container */}
+            <div className="flex-1 flex flex-col bg-white overflow-hidden">
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {messages.length === 0 ? (
+                  <p className="text-center text-gray-500">No messages yet</p>
+                ) : (
+                  messages.map(message => renderMessage(message))
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+
+            {/* Input Area */}
+            <div className="p-4 bg-gray-800 border-t border-gray-700">
+              <form onSubmit={handleSendMessage} className="flex space-x-2">
                 <input
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   placeholder="Type your message..."
-                  className="w-full rounded-lg border border-gray-300 pl-4 pr-12 py-2 focus:outline-none focus:border-indigo-500"
+                  className="flex-1 bg-gray-700 text-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                <input
+                  type="file"
+                  onChange={handleFileUpload}
+                  ref={fileInputRef}
+                  className="hidden"
+                  id="file-upload"
+                />
+                <label
+                  htmlFor="file-upload"
+                  className="px-4 py-2 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 cursor-pointer flex items-center"
                 >
-                  😀
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                </label>
+                <button
+                  type="submit"
+                  disabled={!newMessage.trim()}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  Send
                 </button>
-                {showEmojiPicker && (
-                  <div
-                    ref={emojiPickerRef}
-                    className="absolute bottom-full right-0 mb-2"
-                  >
-                    <EmojiPicker onEmojiClick={handleEmojiClick} />
-                  </div>
-                )}
-              </div>
-              <button
-                type="submit"
-                disabled={!newMessage.trim()}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-              >
-                Send
-              </button>
-            </form>
+              </form>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center bg-white">
+            <p className="text-gray-500">Select a channel to start chatting</p>
           </div>
         )}
       </div>
