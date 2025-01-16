@@ -1,6 +1,7 @@
 import os
-from langchain_openai import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI  # Changed to import ChatOpenAI from langchain_openai
 from langchain_community.vectorstores import Pinecone as LangchainPinecone
+from langchain.chains import RetrievalQA
 from dotenv import load_dotenv
 from pinecone import Pinecone
 
@@ -25,17 +26,24 @@ embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 vectorstore = LangchainPinecone.from_existing_index(
     index_name=PINECONE_INDEX,
     embedding=embeddings,
-    namespace="chatgenie-sample"  # Match the namespace used during embedding
+    namespace="chatgenie-user-data"  # Match the namespace used during upload
+)
+
+# Initialize GPT model
+llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, temperature=0)
+
+# Set up the RAG pipeline
+retrieval_qa = RetrievalQA.from_chain_type(
+    retriever=vectorstore.as_retriever(),
+    llm=llm
 )
 
 # Get a query from the user
 query = input("Enter your query: ")
 
-# Generate embedding for the query
-print("\nGenerating embedding for your query...")
-retrieved_docs = vectorstore.similarity_search(query=query, k=5)  # Retrieve top 5 matches
+# Generate response using the RAG pipeline
+print("\nGenerating response...")
+response = retrieval_qa.invoke({"query": query})
 
-# Display results
-print("\nRetrieved Chunks:")
-for i, doc in enumerate(retrieved_docs, 1):
-    print(f"\nChunk {i}: {doc.page_content}")
+# Display response
+print("\nResponse:", response)
