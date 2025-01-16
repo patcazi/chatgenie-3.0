@@ -1,0 +1,1 @@
+The ChatGenie project is designed to integrate Retrieval-Augmented Generation (RAG) into a chat application. RAG combines the capabilities of language models and vector databases to provide contextually relevant and accurate responses. By leveraging Pinecone and LangChain, this project enables users to query their own uploaded data dynamically.
